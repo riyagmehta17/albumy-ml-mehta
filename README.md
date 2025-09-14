@@ -54,7 +54,7 @@ This project has been extended to automatically generate **photo descriptions** 
 - **Implementation**:  
   - Transformers models used:
     - `Salesforce/blip-image-captioning-base` for captions/descriptions  
-    - `nlpconnect/vit-gpt2-image-captioning` (or similar) for object tags  
+    - `google/vit-base-patch16-224` classifier for object tags  
   - The models run **locally**, no API keys or external services are required.  
   - Integration is done in `main.py` during photo upload:  
     - `generate_alt_text(path)` → sets `photo.description`  
