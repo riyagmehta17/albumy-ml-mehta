@@ -21,6 +21,9 @@ from albumy.extensions import bootstrap, db, login_manager, mail, dropzone, mome
 from albumy.models import Role, User, Photo, Tag, Follow, Notification, Comment, Collect, Permission
 from albumy.settings import config
 
+from dotenv import load_dotenv
+load_dotenv()
+
 
 def create_app(config_name=None):
     if config_name is None:

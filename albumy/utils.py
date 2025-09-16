@@ -17,7 +17,8 @@ import PIL
 from PIL import Image
 from flask import current_app, request, url_for, redirect, flash
 from itsdangerous import BadSignature, SignatureExpired
-from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
+from itsdangerous.url_safe import URLSafeTimedSerializer as Serializer
+
 
 from albumy.extensions import db
 from albumy.models import User
@@ -74,7 +75,8 @@ def resize_image(image, filename, base_width):
         return filename + ext
     w_percent = (base_width / float(img.size[0]))
     h_size = int((float(img.size[1]) * float(w_percent)))
-    img = img.resize((base_width, h_size), PIL.Image.ANTIALIAS)
+    img = img.resize((base_width, h_size), Image.Resampling.LANCZOS)
+
 
     filename += current_app.config['ALBUMY_PHOTO_SUFFIX'][base_width] + ext
     img.save(os.path.join(current_app.config['ALBUMY_UPLOAD_PATH'], filename), optimize=True, quality=85)

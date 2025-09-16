@@ -10,6 +10,7 @@ import os
 from flask import render_template, flash, redirect, url_for, current_app, \
     send_from_directory, request, abort, Blueprint
 from flask_login import login_required, current_user
+from sqlalchemy import or_
 from sqlalchemy.sql.expression import func
 
 from albumy.decorators import confirm_required, permission_required
@@ -49,23 +50,40 @@ def explore():
 @main_bp.route('/search')
 def search():
     q = request.args.get('q', '').strip()
-    if q == '':
+    if not q:
         flash('Enter keyword about photo, user or tag.', 'warning')
         return redirect_back()
 
     category = request.args.get('category', 'photo')
     page = request.args.get('page', 1, type=int)
     per_page = current_app.config['ALBUMY_SEARCH_RESULT_PER_PAGE']
+
     if category == 'user':
-        pagination = User.query.whooshee_search(q).paginate(page, per_page)
+        pagination = User.query.filter(
+            (User.username.ilike(f"%{q}%")) |
+            (User.name.ilike(f"%{q}%")) |
+            (User.email.ilike(f"%{q}%"))
+        ).paginate(page=page, per_page=per_page, error_out=False)
+
     elif category == 'tag':
-        pagination = Tag.query.whooshee_search(q).paginate(page, per_page)
-    else:
-        pagination = Photo.query.whooshee_search(q).paginate(page, per_page)
+        pagination = Tag.query.filter(
+            Tag.name.ilike(f"%{q}%")
+        ).paginate(page=page, per_page=per_page, error_out=False)
+
+    else:  # ✅ Search photos by description OR related tags
+        pagination = Photo.query.join(Photo.tags).filter(
+            or_(
+                Photo.description.ilike(f"%{q}%"),
+                Tag.name.ilike(f"%{q}%")
+            )
+        ).paginate(page=page, per_page=per_page, error_out=False)
+
     results = pagination.items
-    return render_template('main/search.html', q=q, results=results, pagination=pagination, category=category)
-
-
+    return render_template('main/search.html',
+                           q=q,
+                           results=results,
+                           pagination=pagination,
+                           category=category)
 @main_bp.route('/notifications')
 @login_required
 def show_notifications():
@@ -122,9 +140,14 @@ def upload():
     if request.method == 'POST' and 'file' in request.files:
         f = request.files.get('file')
         filename = rename_image(f.filename)
-        f.save(os.path.join(current_app.config['ALBUMY_UPLOAD_PATH'], filename))
+        path = os.path.join(current_app.config['ALBUMY_UPLOAD_PATH'], filename)
+        f.save(path)
+
+       
         filename_s = resize_image(f, filename, current_app.config['ALBUMY_PHOTO_SIZE']['small'])
         filename_m = resize_image(f, filename, current_app.config['ALBUMY_PHOTO_SIZE']['medium'])
+
+        
         photo = Photo(
             filename=filename,
             filename_s=filename_s,
@@ -132,9 +155,38 @@ def upload():
             author=current_user._get_current_object()
         )
         db.session.add(photo)
-        db.session.commit()
-    return render_template('main/upload.html')
+        db.session.commit() 
 
+        
+        from ml_utils import generate_alt_text, detect_objects
+
+        #  Generate and assign the alt text (description)
+        try:
+            photo.description = generate_alt_text(path)
+        except Exception as e:
+            print(f"Error generating alt text: {e}")
+            photo.description = "Image" 
+
+        #  Generate and assign tags
+        try:
+            labels = detect_objects(path)
+            for name in labels:
+                tag = Tag.query.filter_by(name=name.lower()).first()
+                if tag is None:
+                    tag = Tag(name=name.lower())
+                    db.session.add(tag)
+                if tag not in photo.tags:
+                    photo.tags.append(tag)
+        except Exception as e:
+            print(f"Error generating tags: {e}")
+
+       
+        db.session.commit()
+
+        flash('Photo uploaded and analyzed successfully!', 'success')
+        return redirect(url_for('.show_photo', photo_id=photo.id))
+
+    return render_template('main/upload.html')
 
 @main_bp.route('/photo/<int:photo_id>')
 def show_photo(photo_id):
